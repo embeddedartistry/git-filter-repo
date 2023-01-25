@@ -724,9 +724,7 @@ class Commit(_GitElementWithId):
     if self.encoding:
       file_.write(b'encoding %s\n' % self.encoding)
 
-      # RESUME HERE - need to dump signature data and verify I actually did so...
     if self.sig_type:
-      sys.stdout.write("Writing signature data\n")
       file_.write(b'gpgsig %b\n' % self.sig_type)
       file_.write(b'data %d\n%s%s' % (len(self.sig_data), self.sig_data, extra_newline))
 
@@ -955,6 +953,8 @@ class FastExportParser(object):
     # A handle to the output file for the output we generate (we call dump
     # on many of the git elements we create).
     self._output = None
+
+    self._commit_sig_move_into_message = False
 
     # Stores the contents of the current line of input being parsed
     self._currentline = ''
@@ -1247,6 +1247,13 @@ class FastExportParser(object):
 
     commit_msg = self._parse_data()
 
+    if sig_type and self._commit_sig_move_into_message:
+      # We'll append the signature to the commit message, clearing the
+      # signature type so that later on we will not try to store the actual
+      # sig.
+      commit_msg += b'\ngpgsig ' + sig_type + b'\n' + sig_data
+      sig_type = None
+
     pinfo = [self._parse_optional_parent_ref(b'from')]
     # Due to empty pruning, we can have real 'from' and 'merge' lines that
     # due to commit rewriting map to a parent of None.  We need to record
@@ -1289,7 +1296,6 @@ class FastExportParser(object):
                     commit_msg, file_changes, parents, original_id, encoding)
 
     if sig_type:
-      sys.stdout.write("Made it here")
       commit.setSignature(sig_type, sig_data)
 
     # If fast-export text had a mark for this commit, need to make sure this
@@ -1426,6 +1432,9 @@ class FastExportParser(object):
     # Now print the resulting literal command
     if not command.dumped:
       command.dump(self._output)
+
+  def enable_signature_move_into_message(self):
+    self._commit_sig_move_into_message = True
 
   def insert(self, obj):
     assert not obj.dumped
@@ -2072,7 +2081,23 @@ EXAMPLES
                "refs/remotes/origin/* to refs/heads/*, etc.), this also may "
                "cause problems for pruning of degenerate empty merge "
                "commits when negative revisions are specified."))
-
+    # TODO: Review and revise
+    misc.add_argument("--signed-commits", default='strip',
+                      choices=['strip', 'keep-if-valid', 'keep-always',
+                      'keep-in-msg', 'restore-from-msg'],
+        help=_("Commit signatures are typically stripped when rewriting history"
+               " because they are only valid for the contents at the time of "
+               "signing. Rewriting history usually results in invalid commits, "
+               "rendering signatures invalid. However, this causes problems "
+               "because stripping a signature changes the hash as well. "
+               "By default, signatures are stripped from all commits. "
+               "--signed-commits=keep-if-valid will preserve signatures that "
+               "remain valid after rewriting history. "
+               "--signed-commits=keep-always will preserve signatures, even if "
+               "they are no longer valid. "
+               "--signed-commits=keep-in-msg will take all signatures and "
+               "store them in the commit message. These can be recovered at a "
+               "later time by using --signed-commits=restore-from-msg."))
     misc.add_argument('--dry-run', action='store_true',
         help=_("Do not change the repository.  Run `git fast-export` and "
                "filter its output, and save both the original and the "
@@ -3840,10 +3865,16 @@ class RepoFilter(object):
       if self._args.date_order:
         extra_flags.append('--date-order')
       location = ['-C', self._args.source] if self._args.source else []
+      # TODO: handle with restore from message? or does that go elsewhere?
+      sc_arg = self._args.signed_commits
+      if sc_arg == 'strip' or sc_arg == 'restore-from-msg':
+        signed_commit_option = '--signed-commits=warn-strip'
+      else:
+        signed_commit_option = '--signed-commits=verbatim'
       fep_cmd = ['/Users/phillip/src/ea/git/git-fast-export', '--show-original-ids',
-                 '--signed-tags=strip', '--signed-commits=verbatim', '--tag-of-filtered-object=rewrite',
-                 '--fake-missing-tagger', '--reference-excluded-parents'
-                 ] + extra_flags + self._args.refs
+                 '--signed-tags=strip', '--tag-of-filtered-object=rewrite',
+                 '--fake-missing-tagger', '--reference-excluded-parents',
+                 signed_commit_option] + extra_flags + self._args.refs
       self._fep = subproc.Popen(fep_cmd, bufsize=-1, stdout=subprocess.PIPE)
       self._input = self._fep.stdout
       if self._args.dry_run or self._args.debug:
@@ -3861,6 +3892,7 @@ class RepoFilter(object):
     if not self._args.dry_run:
       location = ['-C', self._args.target] if self._args.target else []
       #fip_cmd = ['git'] + location + ['-c', 'core.ignorecase=false',
+      # TODO: handle keep-if-valid once git support lands
       fip_cmd = ['/Users/phillip/src/ea/git/git-fast-import', '--force', '--quiet']
       if date_format_permissive:
         fip_cmd.append('--date-format=raw-permissive')
@@ -4116,6 +4148,8 @@ class RepoFilter(object):
                                       tag_callback    = self._tweak_tag,
                                       reset_callback  = self._tweak_reset,
                                       done_callback   = self._final_commands)
+      if self._args.signed_commits == 'keep-in-msg':
+        self._parser.enable_signature_move_into_message()
       self._parser.run(self._input, self._output)
       if not self._finalize_handled:
         self._final_commands()
