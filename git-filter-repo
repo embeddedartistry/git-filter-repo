@@ -726,8 +726,10 @@ class Commit(_GitElementWithId):
 
       # RESUME HERE - need to dump signature data and verify I actually did so...
     if self.sig_type:
+      sys.stdout.write("Writing signature data\n")
       file_.write(b'gpgsig %b\n' % self.sig_type)
       file_.write(b'data %d\n%s%s' % (len(self.sig_data), self.sig_data, extra_newline))
+
     file_.write(b'data %d\n%s%s' %
                 (len(self.message), self.message, extra_newline))
     for i, parent in enumerate(self.parents):
@@ -3858,8 +3860,8 @@ class RepoFilter(object):
   def _setup_output(self):
     if not self._args.dry_run:
       location = ['-C', self._args.target] if self._args.target else []
-      fip_cmd = ['git'] + location + ['-c', 'core.ignorecase=false',
-                                      'fast-import', '--force', '--quiet']
+      #fip_cmd = ['git'] + location + ['-c', 'core.ignorecase=false',
+      fip_cmd = ['/Users/phillip/src/ea/git/git-fast-import', '--force', '--quiet']
       if date_format_permissive:
         fip_cmd.append('--date-format=raw-permissive')
       if self._args.state_branch:
