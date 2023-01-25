@@ -689,6 +689,13 @@ class Commit(_GitElementWithId):
 
     self.parents = parents
 
+    self.sig_type = None
+    self.sig_data = None
+
+  def setSignature(self, sig_type, sig_data):
+    self.sig_type = sig_type
+    self.sig_data = sig_data
+
   def dump(self, file_):
     """
     Write this commit element to a file.
@@ -716,6 +723,11 @@ class Commit(_GitElementWithId):
                ))
     if self.encoding:
       file_.write(b'encoding %s\n' % self.encoding)
+
+      # RESUME HERE - need to dump signature data and verify I actually did so...
+    if self.sig_type:
+      file_.write(b'gpgsig %b\n' % self.sig_type)
+      file_.write(b'data %d\n%s%s' % (len(self.sig_data), self.sig_data, extra_newline))
     file_.write(b'data %d\n%s%s' %
                 (len(self.message), self.message, extra_newline))
     for i, parent in enumerate(self.parents):
@@ -1100,6 +1112,22 @@ class FastExportParser(object):
       self._advance_currentline()
     return data
 
+  def _parse_signature(self):
+    fields = self._currentline.split()
+    assert fields[0] == b'gpgsig'
+    sig_type = fields[1]
+
+    self._advance_currentline()
+    fields = self._currentline.split()
+    assert fields[0] == b'data'
+    size = int(fields[1])
+    sig_data = self._input.read(size)
+    self._advance_currentline()
+    if self._currentline == b'\n':
+      self._advance_currentline()
+
+    return (sig_type, sig_data)
+
   def _parse_blob(self):
     """
     Parse input data into a Blob object. Once the Blob has been created, it
@@ -1211,6 +1239,10 @@ class FastExportParser(object):
     if self._currentline.startswith(b'encoding '):
       encoding = self._parse_encoding()
 
+    sig_type = None
+    if self._currentline.startswith(b'gpgsig'):
+        (sig_type, sig_data) = self._parse_signature()
+
     commit_msg = self._parse_data()
 
     pinfo = [self._parse_optional_parent_ref(b'from')]
@@ -1253,6 +1285,10 @@ class FastExportParser(object):
                     author_name,    author_email,    author_date,
                     committer_name, committer_email, committer_date,
                     commit_msg, file_changes, parents, original_id, encoding)
+
+    if sig_type:
+      sys.stdout.write("Made it here")
+      commit.setSignature(sig_type, sig_data)
 
     # If fast-export text had a mark for this commit, need to make sure this
     # mark translates to the commit's true id.
@@ -3802,8 +3838,8 @@ class RepoFilter(object):
       if self._args.date_order:
         extra_flags.append('--date-order')
       location = ['-C', self._args.source] if self._args.source else []
-      fep_cmd = ['git'] + location + ['fast-export', '--show-original-ids',
-                 '--signed-tags=strip', '--tag-of-filtered-object=rewrite',
+      fep_cmd = ['/Users/phillip/src/ea/git/git-fast-export', '--show-original-ids',
+                 '--signed-tags=strip', '--signed-commits=verbatim', '--tag-of-filtered-object=rewrite',
                  '--fake-missing-tagger', '--reference-excluded-parents'
                  ] + extra_flags + self._args.refs
       self._fep = subproc.Popen(fep_cmd, bufsize=-1, stdout=subprocess.PIPE)
