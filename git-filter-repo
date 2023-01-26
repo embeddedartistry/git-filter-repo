@@ -1252,16 +1252,16 @@ class FastExportParser(object):
       sig_identifier = "\noriginal_gpgsig "
       sig_index = commit_msg.decode().find(sig_identifier)
       if(sig_index > -1):
-        sys.stdout.write("FOUND ORIG GPGSIG, index:" + str(sig_index) + '\n')
         # Capture the GPG signature section
         sig_section = commit_msg[sig_index + len(sig_identifier):]
         # Restore the original commit message
         commit_msg = commit_msg[:sig_index]
         first_newline_index = sig_section.decode().find('\n')
         sig_type = sig_section[:first_newline_index]
-        sig_data = sig_section[first_newline_index:]
+        sig_data = sig_section[first_newline_index+1:]
         sys.stdout.write("Recovered gpg type: " + sig_type.decode() + '\n')
         sys.stdout.write("Recovered gpg data: " + sig_data.decode() + '\n')
+        sys.stdout.write("Restored commit message: " + commit_msg.decode() + '\n')
 
     pinfo = [self._parse_optional_parent_ref(b'from')]
     # Due to empty pruning, we can have real 'from' and 'merge' lines that
@@ -1305,6 +1305,7 @@ class FastExportParser(object):
                     commit_msg, file_changes, parents, original_id, encoding)
 
     if sig_type:
+      sys.stdout.write("Writing signature data for commit\n")
       commit.setSignature(sig_type, sig_data)
 
     # If fast-export text had a mark for this commit, need to make sure this
