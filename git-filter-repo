@@ -1245,11 +1245,11 @@ class FastExportParser(object):
       # We'll append the signature to the commit message, clearing the
       # signature type so that later on we will not try to store the actual
       # sig.
-      commit_msg += b'\noriginal_gpgsig ' + sig_type + b'\n' + sig_data
+      commit_msg += b'\n\noriginal_gpgsig ' + sig_type + b'\n' + sig_data
       sig_type = None
 
     if self._commit_sig_restore_from_message:
-      sig_identifier = "\noriginal_gpgsig "
+      sig_identifier = "\n\noriginal_gpgsig "
       sig_index = commit_msg.decode().find(sig_identifier)
       if(sig_index > -1):
         # Capture the GPG signature section
